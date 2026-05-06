@@ -1,6 +1,8 @@
 import cv2
+import sys
 import numpy as np
 import matplotlib.pyplot as plt
+
 
 def extract_basic_threshold(gray_img):
     """Method 1: Basic thresholding. Prone to capturing text touching the fan."""
@@ -97,4 +99,4 @@ def experiment_crops(image_path):
     plt.show()
 
 # Run the experiment
-experiment_crops("./test_images/ganglion.png")
+experiment_crops(sys.argv[1])

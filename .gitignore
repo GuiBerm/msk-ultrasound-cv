@@ -216,3 +216,11 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Data directories
+coruña/
+livers/
+princesa/
+test_images/
+combined_data_dictionary.xlsx
+index.dat
