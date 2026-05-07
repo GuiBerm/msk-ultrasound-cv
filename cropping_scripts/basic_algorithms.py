@@ -99,4 +99,7 @@ def experiment_crops(image_path):
     plt.show()
 
 # Run the experiment
-experiment_crops(sys.argv[1])
+try:
+    experiment_crops(sys.argv[1])
+except IndexError:
+    print("Usage: python3 cropping_test.py <path_to_image>")
