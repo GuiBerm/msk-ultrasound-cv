@@ -218,12 +218,10 @@ __marimo__/
 .streamlit/secrets.toml
 
 # Data directories
-coruña/
-livers/
-princesa/
+data/
 test_images/
-combined_data_dictionary.xlsx
-index.dat
+cropping_scripts/test/
+
 
 # Models
 sam_vit_h_4b8939.pth
