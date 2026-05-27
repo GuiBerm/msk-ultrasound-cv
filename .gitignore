@@ -221,6 +221,7 @@ __marimo__/
 data/
 test_images/
 cropping_scripts/test/
+artifacts/
 
 
 # Models
