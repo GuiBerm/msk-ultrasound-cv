@@ -225,3 +225,7 @@ cropping_scripts/test/
 
 # Models
 sam_vit_h_4b8939.pth
+
+# Agentic
+.agents
+.antigravitycli

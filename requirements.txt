@@ -1,0 +1,30 @@
+# Core Data Science & ML
+numpy>=1.24.0
+pandas>=2.0.0
+scipy>=1.10.0
+scikit-learn>=1.3.0
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# PyTorch & Vision
+torch>=2.0.0
+torchvision>=0.15.0
+
+# Medical Imaging & Segmentation
+opencv-python>=4.8.0
+Pillow>=10.0.0
+segment-anything>=1.0
+
+# Foundation Models
+timm>=0.9.0
+
+# Augmentation
+albumentations>=1.3.0
+
+# Utilities & Logging
+tqdm>=4.65.0
+openpyxl>=3.1.0
+
+# Optional: For development/notebooks
+jupyter>=1.0.0
+ipython>=8.0.0
