@@ -1,13 +1,30 @@
 #!/usr/bin/env python3
 """Evaluate the trained model on the Hospital B blind test set.
 
-Usage:
-    python evaluate.py --model bmode --checkpoint artifacts/models/bmode/fold0_best.pth
+Checkpoints can be specified in three ways (all equivalent):
+
+  # 1. Explicit list — pass --checkpoints multiple times
+  python evaluate.py --model bmode \\
+      --checkpoints artifacts/models/bmode/fold0_best.pth \\
+      --checkpoints artifacts/models/bmode/fold1_best.pth
+
+  # 2. Shell glob — let the shell expand it
+  python evaluate.py --model bmode \\
+      --checkpoints artifacts/models/bmode/fold*_best.pth
+
+  # 3. Auto-discover — omit --checkpoints entirely and let the script
+  #    find every fold*_best.pth inside the model's default checkpoint_dir
+  python evaluate.py --model bmode
+
+Predictions from all checkpoints are **averaged in logit space** before
+decoding to ordinal scores (soft ensemble).
 """
 from __future__ import annotations
 
 import argparse
 import logging
+import numpy as np
+from pathlib import Path
 
 import pandas as pd
 import torch
@@ -22,10 +39,86 @@ from src.trainer import Trainer
 from src.utils import get_device, setup_logging
 
 
+def resolve_checkpoints(checkpoints_arg: list[str] | None, default_dir: str) -> list[Path]:
+    """Return a sorted list of checkpoint paths.
+
+    Priority:
+      1. Explicit paths / shell-expanded globs passed via --checkpoints.
+      2. Auto-discover: every fold*_best.pth inside *default_dir*.
+    """
+    if checkpoints_arg:
+        # argparse already received the (possibly shell-expanded) list;
+        # but the user may also have passed a single glob string on some
+        # shells — expand each entry just in case.
+        paths: list[Path] = []
+        for entry in checkpoints_arg:
+            expanded = sorted(Path('.').glob(entry)) if '*' in entry or '?' in entry else [Path(entry)]
+            paths.extend(expanded)
+        if not paths:
+            raise FileNotFoundError(
+                f"No checkpoint files matched: {checkpoints_arg}"
+            )
+        return sorted(set(paths))
+
+    # Auto-discover
+    discovered = sorted(Path(default_dir).glob('fold*_best.pth'))
+    if not discovered:
+        raise FileNotFoundError(
+            f"No fold*_best.pth checkpoints found in '{default_dir}'. "
+            "Pass --checkpoints explicitly or run train.py first."
+        )
+    return discovered
+
+
+def load_models(checkpoints: list[Path], config, device: torch.device) -> list[torch.nn.Module]:
+    """Build and load one model per checkpoint. All returned in eval mode."""
+    models = []
+    for ckpt in checkpoints:
+        m = build_model(config).to(device)
+        Trainer.load_checkpoint(str(ckpt), m, device)
+        m.eval()
+        models.append(m)
+    return models
+
+
+def ensemble_predict(models: list[torch.nn.Module],
+                     images: torch.Tensor,
+                     joint_id: torch.Tensor,
+                     config,
+                     device: torch.device) -> dict[str, torch.Tensor]:
+    """Run all models and return mean logits (soft ensemble)."""
+    use_amp = config.use_amp and device.type == 'cuda'
+    all_logits: dict[str, list[torch.Tensor]] = {t: [] for t in config.task_names}
+
+    for model in models:
+        with torch.amp.autocast(device_type=device.type, enabled=use_amp):
+            preds = model(images, joint_id)
+        for task_name, logits in preds.items():
+            all_logits[task_name].append(logits)
+
+    return {
+        task_name: torch.stack(logit_list).mean(dim=0)
+        for task_name, logit_list in all_logits.items()
+    }
+
+
 def main():
-    parser = argparse.ArgumentParser(description="Evaluate on Hospital B blind test set")
+    parser = argparse.ArgumentParser(
+        description="Evaluate on Hospital B blind test set (fold ensemble)",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=__doc__,
+    )
     parser.add_argument('--model', type=str, choices=['bmode', 'doppler'], required=True)
-    parser.add_argument('--checkpoint', type=str, required=True)
+    parser.add_argument(
+        '--checkpoints', type=str, nargs='+', default=None,
+        metavar='GLOB_OR_PATH',
+        help=(
+            "One or more checkpoint paths or glob patterns "
+            "(e.g. 'artifacts/models/bmode/fold*_best.pth'). "
+            "If omitted, all fold*_best.pth files in the model's "
+            "default checkpoint_dir are used automatically."
+        ),
+    )
     parser.add_argument('--batch-size', type=int, default=32)
     args = parser.parse_args()
 
@@ -37,20 +130,29 @@ def main():
     log = setup_logging()
     device = get_device()
 
+    # ── Resolve checkpoints ───────────────────────────────────────────────────
+    try:
+        checkpoints = resolve_checkpoints(args.checkpoints, config.checkpoint_dir)
+    except FileNotFoundError as exc:
+        log.error(str(exc))
+        return
+
     log.warning("=" * 70)
     log.warning(" HOSPITAL B — BLIND TEST EVALUATION")
     log.warning(" This script should ONLY be run ONCE after all modeling decisions are final.")
     log.warning("=" * 70)
+    log.info(f"Ensemble size: {len(checkpoints)} checkpoint(s)")
+    for ckpt in checkpoints:
+        log.info(f"  • {ckpt}")
 
-    # Identify Hospital B rows
+    # ── Identify Hospital B rows ──────────────────────────────────────────────
     df = pd.read_csv(config.labels_csv)
-    # Hospital B test set is assigned split < 0 or not in folds 0-4
     df_test = df[~df[config.split_col].isin(range(config.n_folds))]
-    
+
     if len(df_test) == 0:
         log.warning("No Hospital B holdout rows found (split < 0). Attempting fallback identification...")
         # Fallback: Coruña eco_ids
-        # Based on data analysis, usually Coruña hospital IDs start with 'coruna' or similar, 
+        # Based on data analysis, usually Coruña hospital IDs start with 'coruna' or similar,
         # but the manifest said "coruna": 50. In labels_with_splits.csv, it's model_group or similar.
         # But if split is fully populated, the above should work.
         pass
@@ -61,56 +163,53 @@ def main():
 
     log.info(f"Found {len(df_test)} Hospital B holdout samples.")
 
-    # Dataset automatically filters to correct modality
+    # ── Dataset / DataLoader ──────────────────────────────────────────────────
     test_ds = MSKUltrasoundDataset(df_test, config.image_dir, config, is_train=False)
-    
+
     if len(test_ds) == 0:
         log.info(f"No Hospital B samples for modality {config.modality_filter}. Done.")
         return
-        
+
     test_loader = DataLoader(
-        test_ds, 
-        batch_size=config.batch_size, 
+        test_ds,
+        batch_size=config.batch_size,
         shuffle=False,
-        num_workers=config.num_workers, 
-        collate_fn=msk_collate_fn
+        num_workers=config.num_workers,
+        collate_fn=msk_collate_fn,
     )
 
-    model = build_model(config).to(device)
-    Trainer.load_checkpoint(args.checkpoint, model, device)
-    model.eval()
+    # ── Load all models ───────────────────────────────────────────────────────
+    models = load_models(checkpoints, config, device)
 
+    # ── Inference ─────────────────────────────────────────────────────────────
     task_n_ranks = {t.name: t.n_ranks for t in config.tasks}
     accumulator = MetricAccumulator(config.task_names, task_n_ranks)
 
     with torch.no_grad():
         for batch in test_loader:
-            images = batch['image'].to(device, non_blocking=True)
-            joint_id = batch['joint_id'].to(device, non_blocking=True)
-            corn_targets = {t: v.to(device, non_blocking=True) for t, v in batch['corn_targets'].items()}
+            images     = batch['image'].to(device, non_blocking=True)
+            joint_id   = batch['joint_id'].to(device, non_blocking=True)
+            corn_targets   = {t: v.to(device, non_blocking=True) for t, v in batch['corn_targets'].items()}
             clinical_masks = {t: v.to(device, non_blocking=True) for t, v in batch['clinical_masks'].items()}
-            
-            with torch.amp.autocast(device_type=device.type, enabled=(config.use_amp and device.type == 'cuda')):
-                predictions = model(images, joint_id)
-                
-            accumulator.update(predictions, corn_targets, clinical_masks)
 
+            ensemble_preds = ensemble_predict(models, images, joint_id, config, device)
+            accumulator.update(ensemble_preds, corn_targets, clinical_masks)
+
+    # ── Report ────────────────────────────────────────────────────────────────
     metrics = accumulator.compute()
-    
+
     log.info("=" * 70)
-    log.info(f"HOSPITAL B RESULTS ({args.model.upper()})")
+    log.info(f"HOSPITAL B RESULTS ({args.model.upper()})  —  ensemble of {len(models)} model(s)")
     log.info("=" * 70)
-    
+
     for task_name, m in metrics.items():
         log.info(f"  {task_name:20s}: QWK={m['qwk']:.4f} | MAE={m['mae']:.4f} | n={m['n']}")
-        
-        # Optionally print confusion matrix
-        preds = accumulator._preds[task_name]
-        trues = accumulator._trues[task_name]
-        if len(preds) > 0:
-            import numpy as np
-            p = np.concatenate(preds)
-            t = np.concatenate(trues)
+
+        preds_list = accumulator._preds[task_name]
+        trues_list = accumulator._trues[task_name]
+        if len(preds_list) > 0:
+            p = np.concatenate(preds_list)
+            t = np.concatenate(trues_list)
             cm = confusion_matrix(t, p)
             log.info(f"  Confusion Matrix:\n{cm}")
 
