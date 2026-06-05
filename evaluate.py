@@ -16,6 +16,9 @@ Checkpoints can be specified in three ways (all equivalent):
   #    find every fold*_best.pth inside artifacts/models/{model}/{name}
   python evaluate.py --model bmode --name baseline_v1
 
+  # Offline mode — load backbone architecture from a local file
+  python evaluate.py --model bmode --name hospital_run --local backbones/efficientnet_b2.pth
+
 Predictions from all checkpoints are **averaged in logit space** before
 decoding to ordinal scores (soft ensemble).
 """
@@ -129,6 +132,16 @@ def main():
     )
     parser.add_argument('--batch-size', type=int, default=32,
                         help="Batch size for inference (default: 32).")
+    parser.add_argument(
+        '--local', type=str, default=None, metavar='PATH',
+        help=(
+            'Path to a local backbone file inside the backbones/ folder. '
+            'Supported formats: .pth, .pt, .safetensors '
+            '(e.g. backbones/efficientnet_b2.pth or backbones/local_efficientnet.safetensors). '
+            'Must match the --local path used during training. '
+            'When omitted, pretrained weights are downloaded via timm.'
+        ),
+    )
     args = parser.parse_args()
 
     # Build paths from --model and --name, consistent with train.py
@@ -139,6 +152,7 @@ def main():
         batch_size=args.batch_size,
         checkpoint_dir=checkpoint_dir,
         results_dir=results_dir,
+        backbone_local_path=args.local,
     )
 
     if args.model == 'bmode':
@@ -246,7 +260,7 @@ def main():
 
     # ── Save results CSV ──────────────────────────────────────────────────────
     Path(results_dir).mkdir(parents=True, exist_ok=True)
-    results_path = Path(results_dir) / 'blind_test_results.csv'
+    results_path = Path(results_dir) / f'blind_test_{args.name}.csv'
     pd.DataFrame(summary_rows).to_csv(results_path, index=False)
     log.info(f"Saved blind-test results to {results_path}")
 

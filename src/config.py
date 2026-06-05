@@ -9,7 +9,7 @@ Two factory functions produce the model-specific configs:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List
+from typing import List, Optional
 
 
 # ─── Joint-Type Encoding ─────────────────────────────────────────────────────
@@ -47,11 +47,12 @@ class ModelConfig:
     # ── Tasks ─────────────────────────────────────────────────────────────────
     tasks: List[TaskConfig] = field(default_factory=list)
 
-    # ── Paths ─────────────────────────────────────────────────────────────────
-    labels_csv:     str = 'artifacts/labels_with_splits.csv'
-    image_dir:      str = 'data/cropped_images'
-    checkpoint_dir: str = 'artifacts/models'
-    results_dir:    str = 'results'
+    # ── Paths ───────────────────────────────────────────────────────────────────────
+    labels_csv:          str = 'artifacts/labels_with_splits.csv'
+    image_dir:           str = 'data/cropped_images'
+    checkpoint_dir:      str = 'artifacts/models'
+    results_dir:         str = 'results'
+    backbone_local_path: Optional[str] = None   # set via --local for offline use
 
     # ── Backbone ──────────────────────────────────────────────────────────────
     backbone_name:         str = 'efficientnet_b2'

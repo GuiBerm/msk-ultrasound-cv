@@ -2,7 +2,13 @@
 """Train the MSK ultrasound model via 5-fold cross-validation.
 
 Usage:
+    # Online: downloads pretrained backbone from timm/HuggingFace
     python train.py --model bmode --name baseline_v1
+
+    # Offline: load backbone weights from a local file (air-gapped environments)
+    python train.py --model bmode --name hospital_run --local backbones/efficientnet_b2.pth
+
+    # With extra overrides
     python train.py --model doppler --name exp_lr3e4 --backbone efficientnet_b2 --epochs 40
 """
 from __future__ import annotations
@@ -35,6 +41,16 @@ def main():
     parser.add_argument('--lr', type=float, default=3e-4)
     parser.add_argument('--seed', type=int, default=42)
     parser.add_argument('--folds', type=str, default='0,1,2,3,4', help='Comma-separated fold indices')
+    parser.add_argument(
+        '--local', type=str, default=None, metavar='PATH',
+        help=(
+            'Path to a local backbone file inside the backbones/ folder. '
+            'Supported formats: .pth, .pt, .safetensors '
+            '(e.g. backbones/efficientnet_b2.pth or backbones/local_efficientnet.safetensors). '
+            'Use this in air-gapped environments where internet access is unavailable. '
+            'When omitted, pretrained weights are downloaded via timm.'
+        ),
+    )
     
     args = parser.parse_args()
     
@@ -47,6 +63,7 @@ def main():
         'seed': args.seed,
         'checkpoint_dir': f'artifacts/models/{args.model}/{args.name}',
         'results_dir': f'results/{args.model}/{args.name}',
+        'backbone_local_path': args.local,
     }
     
     if args.model == 'bmode':

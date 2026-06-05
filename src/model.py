@@ -133,5 +133,5 @@ class ModalityModel(nn.Module):
 
 def build_model(config: ModelConfig) -> ModalityModel:
     """Factory function to build the complete model."""
-    backbone, out_dim = build_backbone(config.backbone_name)
+    backbone, out_dim = build_backbone(config.backbone_name, config.backbone_local_path)
     return ModalityModel(config, backbone, out_dim)
