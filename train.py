@@ -2,8 +2,8 @@
 """Train the MSK ultrasound model via 5-fold cross-validation.
 
 Usage:
-    python train.py --model bmode
-    python train.py --model doppler --backbone efficientnet_b2 --epochs 40
+    python train.py --model bmode --name baseline_v1
+    python train.py --model doppler --name exp_lr3e4 --backbone efficientnet_b2 --epochs 40
 """
 from __future__ import annotations
 
@@ -26,6 +26,9 @@ from src.utils import get_device, seed_everything, setup_logging
 def main():
     parser = argparse.ArgumentParser(description="Train MSK Ultrasound Model")
     parser.add_argument('--model', type=str, choices=['bmode', 'doppler'], required=True)
+    parser.add_argument('--name', type=str, required=True,
+                        help='Unique name for this run. Artifacts are stored under '
+                             'artifacts/models/{model}/{name} and results/{model}/{name}.')
     parser.add_argument('--backbone', type=str, default='efficientnet_b2')
     parser.add_argument('--epochs', type=int, default=60)
     parser.add_argument('--batch-size', type=int, default=32)
@@ -41,7 +44,9 @@ def main():
         'num_epochs': args.epochs,
         'batch_size': args.batch_size,
         'learning_rate': args.lr,
-        'seed': args.seed
+        'seed': args.seed,
+        'checkpoint_dir': f'artifacts/models/{args.model}/{args.name}',
+        'results_dir': f'results/{args.model}/{args.name}',
     }
     
     if args.model == 'bmode':
@@ -56,7 +61,7 @@ def main():
     Path(config.checkpoint_dir).mkdir(parents=True, exist_ok=True)
     Path(config.results_dir).mkdir(parents=True, exist_ok=True)
     
-    log.info(f"Configuration loaded for {args.model.upper()}")
+    log.info(f"Configuration loaded for {args.model.upper()} | run name: '{args.name}'")
     log.info(f"  Backbone: {config.backbone_name}")
     log.info(f"  Tasks:    {config.task_names}")
     

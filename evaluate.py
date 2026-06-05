@@ -4,17 +4,17 @@
 Checkpoints can be specified in three ways (all equivalent):
 
   # 1. Explicit list — pass --checkpoints multiple times
-  python evaluate.py --model bmode \\
-      --checkpoints artifacts/models/bmode/fold0_best.pth \\
-      --checkpoints artifacts/models/bmode/fold1_best.pth
+  python evaluate.py --model bmode --name baseline_v1 \\
+      --checkpoints artifacts/models/bmode/baseline_v1/fold0_best.pth \\
+      --checkpoints artifacts/models/bmode/baseline_v1/fold1_best.pth
 
   # 2. Shell glob — let the shell expand it
-  python evaluate.py --model bmode \\
-      --checkpoints artifacts/models/bmode/fold*_best.pth
+  python evaluate.py --model bmode --name baseline_v1 \\
+      --checkpoints 'artifacts/models/bmode/baseline_v1/fold*_best.pth'
 
   # 3. Auto-discover — omit --checkpoints entirely and let the script
-  #    find every fold*_best.pth inside the model's default checkpoint_dir
-  python evaluate.py --model bmode
+  #    find every fold*_best.pth inside artifacts/models/{model}/{name}
+  python evaluate.py --model bmode --name baseline_v1
 
 Predictions from all checkpoints are **averaged in logit space** before
 decoding to ordinal scores (soft ensemble).
@@ -108,27 +108,50 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
-    parser.add_argument('--model', type=str, choices=['bmode', 'doppler'], required=True)
+    parser.add_argument('--model', type=str, choices=['bmode', 'doppler'], required=True,
+                        help="Model modality to evaluate.")
+    parser.add_argument('--name', type=str, required=True,
+                        help=(
+                            "Name of the training run to evaluate. "
+                            "Auto-discover will look for checkpoints under "
+                            "artifacts/models/{model}/{name}/ and results are "
+                            "saved to results/{model}/{name}/."
+                        ))
     parser.add_argument(
         '--checkpoints', type=str, nargs='+', default=None,
         metavar='GLOB_OR_PATH',
         help=(
             "One or more checkpoint paths or glob patterns "
-            "(e.g. 'artifacts/models/bmode/fold*_best.pth'). "
-            "If omitted, all fold*_best.pth files in the model's "
-            "default checkpoint_dir are used automatically."
+            "(e.g. 'artifacts/models/bmode/baseline_v1/fold*_best.pth'). "
+            "If omitted, all fold*_best.pth files under "
+            "artifacts/models/{model}/{name}/ are used automatically."
         ),
     )
-    parser.add_argument('--batch-size', type=int, default=32)
+    parser.add_argument('--batch-size', type=int, default=32,
+                        help="Batch size for inference (default: 32).")
     args = parser.parse_args()
 
+    # Build paths from --model and --name, consistent with train.py
+    checkpoint_dir = f'artifacts/models/{args.model}/{args.name}'
+    results_dir    = f'results/{args.model}/{args.name}'
+
+    overrides = dict(
+        batch_size=args.batch_size,
+        checkpoint_dir=checkpoint_dir,
+        results_dir=results_dir,
+    )
+
     if args.model == 'bmode':
-        config = BmodeConfig(batch_size=args.batch_size)
+        config = BmodeConfig(**overrides)
     else:
-        config = DopplerConfig(batch_size=args.batch_size)
+        config = DopplerConfig(**overrides)
 
     log = setup_logging()
     device = get_device()
+
+    log.info(f"Run name : '{args.name}'")
+    log.info(f"Checkpoints dir : {checkpoint_dir}")
+    log.info(f"Results dir     : {results_dir}")
 
     # ── Resolve checkpoints ───────────────────────────────────────────────────
     try:
@@ -187,8 +210,8 @@ def main():
 
     with torch.no_grad():
         for batch in test_loader:
-            images     = batch['image'].to(device, non_blocking=True)
-            joint_id   = batch['joint_id'].to(device, non_blocking=True)
+            images         = batch['image'].to(device, non_blocking=True)
+            joint_id       = batch['joint_id'].to(device, non_blocking=True)
             corn_targets   = {t: v.to(device, non_blocking=True) for t, v in batch['corn_targets'].items()}
             clinical_masks = {t: v.to(device, non_blocking=True) for t, v in batch['clinical_masks'].items()}
 
@@ -199,9 +222,10 @@ def main():
     metrics = accumulator.compute()
 
     log.info("=" * 70)
-    log.info(f"HOSPITAL B RESULTS ({args.model.upper()})  —  ensemble of {len(models)} model(s)")
+    log.info(f"HOSPITAL B RESULTS ({args.model.upper()}) | run: '{args.name}'  —  ensemble of {len(models)} model(s)")
     log.info("=" * 70)
 
+    summary_rows = []
     for task_name, m in metrics.items():
         log.info(f"  {task_name:20s}: QWK={m['qwk']:.4f} | MAE={m['mae']:.4f} | n={m['n']}")
 
@@ -212,6 +236,19 @@ def main():
             t = np.concatenate(trues_list)
             cm = confusion_matrix(t, p)
             log.info(f"  Confusion Matrix:\n{cm}")
+
+        summary_rows.append({
+            'task': task_name,
+            'qwk':  m['qwk'],
+            'mae':  m['mae'],
+            'n':    m['n'],
+        })
+
+    # ── Save results CSV ──────────────────────────────────────────────────────
+    Path(results_dir).mkdir(parents=True, exist_ok=True)
+    results_path = Path(results_dir) / 'blind_test_results.csv'
+    pd.DataFrame(summary_rows).to_csv(results_path, index=False)
+    log.info(f"Saved blind-test results to {results_path}")
 
 
 if __name__ == '__main__':
