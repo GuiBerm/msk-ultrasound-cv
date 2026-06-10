@@ -108,15 +108,33 @@ class ModelConfig:
 
 # ─── Factory Functions ────────────────────────────────────────────────────────
 
-def BmodeConfig(**overrides) -> ModelConfig:
-    """B-Mode structural model: eg_sinovial (K=3) + bone_erosion (K=1)."""
+def BmodeConfig(include_bone_erosion: bool = True, **overrides) -> ModelConfig:
+    """
+    B-Mode structural model.
+
+    Tasks:
+      - eg_sinovial  (K=3, always included)
+      - bone_erosion (K=1, included by default; set include_bone_erosion=False to drop it)
+
+    Parameters
+    ----------
+    include_bone_erosion : bool
+        When False, the bone_erosion task head is omitted entirely from the
+        model, loss, and metrics. Useful when the severe class imbalance
+        (≈90 % negatives) is suspected to hurt eg_sinovial optimisation.
+    """
+    tasks = [
+        TaskConfig(name='eg_sinovial', csv_column='eg_sinovial', n_ranks=3, loss_weight=1.0),
+    ]
+    if include_bone_erosion:
+        tasks.append(
+            TaskConfig(name='bone_erosion', csv_column='bone_erosion', n_ranks=1, loss_weight=1.5)
+        )
+
     defaults = dict(
         modality='bmode',
         modality_filter='Modo B',
-        tasks=[
-            TaskConfig(name='eg_sinovial',  csv_column='eg_sinovial',  n_ranks=3, loss_weight=1.0),
-            TaskConfig(name='bone_erosion', csv_column='bone_erosion', n_ranks=1, loss_weight=1.5),
-        ],
+        tasks=tasks,
         checkpoint_dir='artifacts/models/bmode',
         results_dir='results/bmode',
     )

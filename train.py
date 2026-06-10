@@ -51,6 +51,15 @@ def main():
             'When omitted, pretrained weights are downloaded via timm.'
         ),
     )
+    parser.add_argument(
+        '--no-bone-erosion', action='store_true', default=False,
+        help=(
+            '[bmode only] Drop the bone_erosion task entirely. '
+            'Useful when its severe class imbalance (~90 %% negatives) is '
+            'suspected to hurt eg_sinovial optimisation. '
+            'Has no effect when --model doppler is used.'
+        ),
+    )
     
     args = parser.parse_args()
     
@@ -67,8 +76,11 @@ def main():
     }
     
     if args.model == 'bmode':
-        config = BmodeConfig(**overrides)
+        include_bone_erosion = not args.no_bone_erosion
+        config = BmodeConfig(include_bone_erosion=include_bone_erosion, **overrides)
     else:
+        if args.no_bone_erosion:
+            log.warning("--no-bone-erosion has no effect for doppler models (ignored).")
         config = DopplerConfig(**overrides)
         
     seed_everything(config.seed)
