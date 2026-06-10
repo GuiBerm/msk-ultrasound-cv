@@ -16,9 +16,6 @@ Checkpoints can be specified in three ways (all equivalent):
   #    find every fold*_best.pth inside artifacts/models/{model}/{name}
   python evaluate.py --model bmode --name baseline_v1
 
-  # Offline mode — load backbone architecture from a local file
-  python evaluate.py --model bmode --name hospital_run --local backbones/efficientnet_b2.pth
-
 Predictions from all checkpoints are **averaged in logit space** before
 decoding to ordinal scores (soft ensemble).
 """
@@ -133,16 +130,16 @@ def main():
     parser.add_argument('--batch-size', type=int, default=32,
                         help="Batch size for inference (default: 32).")
     parser.add_argument(
-        '--local', type=str, default=None, metavar='PATH',
+        '--no-bone-erosion', action='store_true', default=False,
         help=(
-            'Path to a local backbone file inside the backbones/ folder. '
-            'Supported formats: .pth, .pt, .safetensors '
-            '(e.g. backbones/efficientnet_b2.pth or backbones/local_efficientnet.safetensors). '
-            'Must match the --local path used during training. '
-            'When omitted, pretrained weights are downloaded via timm.'
+            '[bmode only] Drop the bone_erosion task — must match the flag '
+            'used during training, otherwise the loaded architecture will '
+            'not match the checkpoint. Has no effect for doppler.'
         ),
     )
     args = parser.parse_args()
+
+    log = setup_logging()
 
     # Build paths from --model and --name, consistent with train.py
     checkpoint_dir = f'artifacts/models/{args.model}/{args.name}'
@@ -152,18 +149,20 @@ def main():
         batch_size=args.batch_size,
         checkpoint_dir=checkpoint_dir,
         results_dir=results_dir,
-        backbone_local_path=args.local,
     )
 
     if args.model == 'bmode':
-        config = BmodeConfig(**overrides)
+        include_bone_erosion = not args.no_bone_erosion
+        config = BmodeConfig(include_bone_erosion=include_bone_erosion, **overrides)
     else:
+        if args.no_bone_erosion:
+            log.warning("--no-bone-erosion has no effect for doppler models (ignored).")
         config = DopplerConfig(**overrides)
 
-    log = setup_logging()
     device = get_device()
 
-    log.info(f"Run name : '{args.name}'")
+    log.info(f"Run name        : '{args.name}'")
+    log.info(f"Tasks           : {config.task_names}")
     log.info(f"Checkpoints dir : {checkpoint_dir}")
     log.info(f"Results dir     : {results_dir}")
 
