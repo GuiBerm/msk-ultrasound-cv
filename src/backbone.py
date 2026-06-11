@@ -56,6 +56,7 @@ def _load_state_dict(path: Path) -> dict:
 def build_backbone(
     name: str = 'efficientnet_b2',
     local_path: Optional[str] = None,
+    pretrained: bool = True,
 ) -> Tuple[nn.Module, int]:
     """
     Build a backbone, either from timm (online) or from a local file (offline).
@@ -71,6 +72,12 @@ def build_backbone(
         When provided, timm builds the architecture without downloading
         weights and the state-dict is loaded from this file instead.
         Use this for air-gapped environments (e.g. hospital computers).
+    pretrained : bool
+        Only relevant when local_path is None.
+        When False, timm builds the architecture without downloading any
+        pretrained weights — use this when a full model checkpoint will be
+        loaded immediately afterwards (e.g. in evaluate.py), so the
+        pretrained download is a complete waste.
 
     Returns
     -------
@@ -111,12 +118,16 @@ def build_backbone(
     else:
         model = timm.create_model(
             name,
-            pretrained=True,
+            pretrained=pretrained,
             num_classes=0,       # strip classifier → returns features
             global_pool='avg',   # global average pooling
         )
         out_dim = model.num_features
-        log.info(f"Backbone '{name}' loaded from timm (pretrained=True). "
-                 f"Output dim: {out_dim}")
+        if pretrained:
+            log.info(f"Backbone '{name}' loaded from timm (pretrained=True). "
+                     f"Output dim: {out_dim}")
+        else:
+            log.info(f"Backbone '{name}' architecture built without pretrained weights. "
+                     f"Output dim: {out_dim}")
 
     return model, out_dim

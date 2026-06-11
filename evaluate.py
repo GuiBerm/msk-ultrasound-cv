@@ -71,10 +71,14 @@ def resolve_checkpoints(checkpoints_arg: list[str] | None, default_dir: str) -> 
 
 
 def load_models(checkpoints: list[Path], config, device: torch.device) -> list[torch.nn.Module]:
-    """Build and load one model per checkpoint. All returned in eval mode."""
+    """Build and load one model per checkpoint. All returned in eval mode.
+
+    pretrained=False skips the HuggingFace download — the checkpoint
+    immediately overwrites every weight anyway.
+    """
     models = []
     for ckpt in checkpoints:
-        m = build_model(config).to(device)
+        m = build_model(config, pretrained=False).to(device)
         Trainer.load_checkpoint(str(ckpt), m, device)
         m.eval()
         models.append(m)

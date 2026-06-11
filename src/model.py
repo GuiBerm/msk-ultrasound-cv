@@ -131,7 +131,16 @@ class ModalityModel(nn.Module):
         ]
 
 
-def build_model(config: ModelConfig) -> ModalityModel:
-    """Factory function to build the complete model."""
-    backbone, out_dim = build_backbone(config.backbone_name, config.backbone_local_path)
+def build_model(config: ModelConfig, pretrained: bool = True) -> ModalityModel:
+    """Factory function to build the complete model.
+
+    Parameters
+    ----------
+    config : ModelConfig
+    pretrained : bool
+        Passed to build_backbone. Set to False in evaluate.py to avoid
+        downloading pretrained weights that will be immediately overwritten
+        by a saved checkpoint.
+    """
+    backbone, out_dim = build_backbone(config.backbone_name, config.backbone_local_path, pretrained=pretrained)
     return ModalityModel(config, backbone, out_dim)
