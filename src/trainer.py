@@ -131,6 +131,7 @@ class Trainer:
         torch.save({
             'epoch': epoch,
             'fold': fold_idx,
+            'backbone_name': self.config.backbone_name,
             'model_state': self.model.state_dict(),
             'optim_state': self.optimizer.state_dict(),
             'sched_state': self.scheduler.state_dict(),

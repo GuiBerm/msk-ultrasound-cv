@@ -73,9 +73,26 @@ def resolve_checkpoints(checkpoints_arg: list[str] | None, default_dir: str) -> 
 def load_models(checkpoints: list[Path], config, device: torch.device) -> list[torch.nn.Module]:
     """Build and load one model per checkpoint. All returned in eval mode.
 
-    pretrained=False skips the HuggingFace download — the checkpoint
-    immediately overwrites every weight anyway.
+    The backbone name is read directly from the first checkpoint so that the
+    correct architecture is reconstructed without any extra CLI flags.
+    pretrained=False skips the HuggingFace download — the checkpoint weights
+    overwrite everything immediately anyway.
     """
+    # ── Infer backbone from checkpoint metadata ───────────────────────────────
+    _log = logging.getLogger('msk')
+    first_meta = torch.load(str(checkpoints[0]), map_location='cpu', weights_only=False)
+    backbone_name = first_meta.get('backbone_name')
+    if backbone_name is None:
+        _log.warning(
+            "Checkpoint has no 'backbone_name' key (old format). "
+            f"Falling back to config default: '{config.backbone_name}'. "
+            "Re-train to make checkpoints self-describing."
+        )
+        backbone_name = config.backbone_name
+    else:
+        _log.info(f"Backbone inferred from checkpoint: '{backbone_name}'")
+    config.backbone_name = backbone_name
+
     models = []
     for ckpt in checkpoints:
         m = build_model(config, pretrained=False).to(device)
