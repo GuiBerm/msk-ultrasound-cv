@@ -69,6 +69,9 @@ class ModelConfig:
     # ── Image ─────────────────────────────────────────────────────────────────
     image_size: int = 256
 
+    # ── Augmentation ──────────────────────────────────────────────────────────
+    color_augmentation: bool = False   # activate domain-robustness colour block
+
     # ── Training ──────────────────────────────────────────────────────────────
     batch_size:       int   = 32
     num_epochs:       int   = 60

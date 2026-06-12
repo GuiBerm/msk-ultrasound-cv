@@ -54,19 +54,45 @@ def get_device() -> torch.device:
 
 # ─── Augmentation Pipelines ──────────────────────────────────────────────────
 
-def build_train_transforms(image_size: int, is_doppler: bool = False) -> A.Compose:
+def build_train_transforms(
+    image_size: int,
+    is_doppler: bool = False,
+    color_augmentation: bool = False,
+) -> A.Compose:
     """
     Training augmentations for MSK ultrasound images.
 
-    B-Mode gets brightness/contrast + CLAHE (gain variation, tissue enhancement).
-    Doppler skips colour transforms to preserve flow-encoding semantics.
-    Images are already 256×256 — no Resize needed, but we include it defensively
-    in case image_size ever changes.
+    Colour transforms are governed by color_augmentation:
+
+    color_augmentation=False (default)
+        No colour transforms for either modality. Clean geometric-only baseline.
+
+    color_augmentation=True
+        Modality-specific domain-robustness block:
+        - Doppler: HueSaturationValue + CLAHE + ToGray
+          Doppler images are colour-coded by flow velocity; the palette varies
+          per machine, so hue/saturation randomisation is the primary fix.
+        - Bmode: CLAHE only
+          Bmode is essentially greyscale — hue/saturation shifts are meaningless.
+          The only meaningful inter-scanner variation is local contrast (gain,
+          dynamic range), which CLAHE normalises.
     """
-    colour_transforms = [] if is_doppler else [
-        A.RandomBrightnessContrast(brightness_limit=0.20, contrast_limit=0.20, p=0.5),
-        A.CLAHE(clip_limit=(1.0, 4.0), tile_grid_size=(8, 8), p=0.4),
-    ]
+    if color_augmentation:
+        if is_doppler:
+            colour_transforms = [
+                A.HueSaturationValue(
+                    hue_shift_limit=20, sat_shift_limit=30,
+                    val_shift_limit=20, p=0.7,
+                ),
+                A.CLAHE(clip_limit=(1.0, 3.0), tile_grid_size=(8, 8), p=0.4),
+                A.ToGray(p=0.15),
+            ]
+        else:  # bmode — greyscale, only contrast normalisation makes sense
+            colour_transforms = [
+                A.CLAHE(clip_limit=(1.0, 3.0), tile_grid_size=(8, 8), p=0.5),
+            ]
+    else:
+        colour_transforms = []  # no colour transforms (default)
 
     return A.Compose([
         A.Rotate(limit=12, border_mode=0, p=0.5),

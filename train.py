@@ -39,6 +39,29 @@ def main():
     parser.add_argument('--epochs', type=int, default=60)
     parser.add_argument('--batch-size', type=int, default=32)
     parser.add_argument('--lr', type=float, default=3e-4)
+    parser.add_argument(
+        '--freeze-epochs', type=int, default=5,
+        help=(
+            'Number of epochs to keep the backbone frozen while only '
+            'the head warms up. 0 = never freeze. Default: 5.'
+        ),
+    )
+    parser.add_argument(
+        '--backbone-lr-mult', type=float, default=0.05,
+        help=(
+            'Learning rate multiplier for the backbone. '
+            'Default: 0.05.'
+        ),
+    )
+    parser.add_argument(
+        '--color-augmentation', action='store_true', default=False,
+        help=(
+            'Activate domain-robustness colour augmentations. '
+            'Doppler: HueSaturationValue + CLAHE + random grayscale. '
+            'Bmode: CLAHE only. '
+            'Use when evaluating across different imaging centres.'
+        ),
+    )
     parser.add_argument('--seed', type=int, default=42)
     parser.add_argument('--folds', type=str, default='0,1,2,3,4', help='Comma-separated fold indices')
     parser.add_argument(
@@ -62,6 +85,9 @@ def main():
     )
     
     args = parser.parse_args()
+
+    log = setup_logging()
+    seed_everything(args.seed)  # seed before anything random happens
     
     # Configuration
     overrides = {
@@ -69,6 +95,9 @@ def main():
         'num_epochs': args.epochs,
         'batch_size': args.batch_size,
         'learning_rate': args.lr,
+        'backbone_lr_mult': args.backbone_lr_mult,
+        'freeze_backbone_epochs': args.freeze_epochs,
+        'color_augmentation': args.color_augmentation,
         'seed': args.seed,
         'checkpoint_dir': f'artifacts/models/{args.model}/{args.name}',
         'results_dir': f'results/{args.model}/{args.name}',
@@ -84,15 +113,17 @@ def main():
         config = DopplerConfig(**overrides)
         
     seed_everything(config.seed)
-    log = setup_logging()
     
     # Directories
     Path(config.checkpoint_dir).mkdir(parents=True, exist_ok=True)
     Path(config.results_dir).mkdir(parents=True, exist_ok=True)
     
     log.info(f"Configuration loaded for {args.model.upper()} | run name: '{args.name}'")
-    log.info(f"  Backbone: {config.backbone_name}")
-    log.info(f"  Tasks:    {config.task_names}")
+    log.info(f"  Backbone:           {config.backbone_name}")
+    log.info(f"  Tasks:              {config.task_names}")
+    log.info(f"  backbone_lr_mult:   {config.backbone_lr_mult}")
+    log.info(f"  freeze_epochs:      {config.freeze_backbone_epochs}")
+    log.info(f"  color_augmentation: {config.color_augmentation}")
     
     device = get_device()
     log.info(f"Device: {device}")

@@ -51,7 +51,11 @@ class MSKUltrasoundDataset(Dataset):
         # Build transforms
         if is_train:
             is_doppler = (config.modality == 'doppler')
-            self.transforms = build_train_transforms(config.image_size, is_doppler=is_doppler)
+            self.transforms = build_train_transforms(
+                config.image_size,
+                is_doppler=is_doppler,
+                color_augmentation=config.color_augmentation,
+            )
         else:
             self.transforms = build_val_transforms(config.image_size)
 
