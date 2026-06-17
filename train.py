@@ -145,6 +145,13 @@ def main():
             
         result = trainer.run_fold(train_loader, val_loader, fold_idx)
         cv_results.append(result)
+
+                
+        # --- SAVE EPOCH HISTORY FOR MATPLOTLIB CURVES ---
+        history_df = pd.DataFrame(result['history'])
+        history_path = Path(config.results_dir) / f'fold{fold_idx}_history.csv'
+        history_df.to_csv(history_path, index=False)
+        # -----------------------------------------------------
         
         del model, trainer, loss_fn, train_loader, val_loader
         if device.type == 'cuda':
