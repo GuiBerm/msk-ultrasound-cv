@@ -287,10 +287,27 @@ def build_qa_fold_loaders(config: QAConfig, fold_idx: int) -> Tuple[DataLoader, 
     df_train = df_pool[df_pool[config.split_col] != fold_idx]
     df_val   = df_pool[df_pool[config.split_col] == fold_idx]
 
+    # ── Deduplicate by eco_id ──────────────────────────────────────────────────
+    # Radiocarpiana and Intercarpiana share the exact same image (eco_id).
+    # After merging both to QA class 4 ("Wrist"), the two rows carry identical
+    # (image, label) pairs — keeping only one prevents the same image from
+    # being loaded twice per epoch and from inflating the wrist class count in
+    # the WeightedRandomSampler frequency calculation.
+    n_train_before = len(df_train)
+    n_val_before   = len(df_val)
+    df_train = df_train.drop_duplicates(subset=config.eco_id_col, keep='first').reset_index(drop=True)
+    df_val   = df_val.drop_duplicates(subset=config.eco_id_col, keep='first').reset_index(drop=True)
+    log.info(
+        f"QA dedup (fold {fold_idx}): "
+        f"train {n_train_before} → {len(df_train)} rows | "
+        f"val {n_val_before} → {len(df_val)} rows"
+    )
+
     train_ds = QADataset(df_train, config.image_dir, config, is_train=True)
     val_ds   = QADataset(df_val,   config.image_dir, config, is_train=False)
 
     # ── WeightedRandomSampler on the merged 5-class label ─────────────────────
+    # Built from the deduplicated df_train so wrist class weight is accurate.
     train_joint_ids = df_train[config.joint_type_col].map(QA_JOINT_TYPE_MAP)
     class_counts    = train_joint_ids.value_counts()
     inv_freq        = 1.0 / class_counts.clip(lower=1)
