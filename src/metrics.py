@@ -5,7 +5,7 @@ from typing import Dict, List
 
 import numpy as np
 import torch
-from sklearn.metrics import cohen_kappa_score
+from sklearn.metrics import cohen_kappa_score, f1_score, confusion_matrix
 
 log = logging.getLogger('msk')
 
@@ -112,3 +112,96 @@ class MetricAccumulator:
         metrics = self.compute()
         qwks = [v['qwk'] for v in metrics.values() if not np.isnan(v['qwk'])]
         return float(np.mean(qwks)) if qwks else float('nan')
+
+
+# ─── QA Gatekeeper Metrics ────────────────────────────────────────────────────
+
+class QAMetricAccumulator:
+    """
+    Accumulates predictions and ground-truth labels over an epoch for the
+    QA Gatekeeper multi-class classification task.
+
+    Primary metric: macro F1 (robust to the 5-class imbalance).
+    Secondary metrics: overall accuracy, per-class accuracy, unweighted Cohen's Kappa.
+    """
+
+    def __init__(self, num_classes: int, class_names: List[str]):
+        self.num_classes  = num_classes
+        self.class_names  = class_names
+        self._preds: List[np.ndarray] = []
+        self._trues: List[np.ndarray] = []
+
+    def update(self, logits: torch.Tensor, targets: torch.Tensor) -> None:
+        """
+        Update accumulators with a new batch.
+
+        Args:
+            logits:  (B, num_classes) — raw class logits from the model
+            targets: (B,)             — ground-truth class indices
+        """
+        preds = logits.argmax(dim=-1).detach().cpu().numpy()
+        trues = targets.detach().cpu().numpy()
+        self._preds.append(preds)
+        self._trues.append(trues)
+
+    def compute(self) -> Dict[str, object]:
+        """
+        Compute all QA metrics.
+
+        Returns a dict with:
+          - 'accuracy':       float  — overall accuracy
+          - 'macro_f1':       float  — macro-averaged F1 (primary metric)
+          - 'kappa':          float  — unweighted Cohen's Kappa
+          - 'per_class_acc':  dict[class_name, float]
+          - 'confusion_matrix': np.ndarray (num_classes x num_classes)
+          - 'n':              int    — total samples evaluated
+        """
+        if not self._preds:
+            return {
+                'accuracy': float('nan'), 'macro_f1': float('nan'),
+                'kappa': float('nan'), 'per_class_acc': {}, 'confusion_matrix': None, 'n': 0,
+            }
+
+        preds = np.concatenate(self._preds)
+        trues = np.concatenate(self._trues)
+        n     = len(preds)
+
+        # Overall accuracy
+        accuracy = float(np.mean(preds == trues))
+
+        # Macro F1 (primary — handles class imbalance)
+        labels = list(range(self.num_classes))
+        macro_f1 = float(f1_score(trues, preds, labels=labels, average='macro', zero_division=0))
+
+        # Unweighted Cohen's Kappa
+        try:
+            kappa = float(cohen_kappa_score(trues, preds, labels=labels))
+        except ValueError:
+            kappa = float('nan')
+
+        # Confusion matrix
+        cm = confusion_matrix(trues, preds, labels=labels)
+
+        # Per-class accuracy (diagonal of row-normalised confusion matrix)
+        per_class_acc = {}
+        for i, name in enumerate(self.class_names):
+            row_sum = cm[i].sum()
+            per_class_acc[name] = float(cm[i, i] / row_sum) if row_sum > 0 else float('nan')
+
+        return {
+            'accuracy':        accuracy,
+            'macro_f1':        macro_f1,
+            'kappa':           kappa,
+            'per_class_acc':   per_class_acc,
+            'confusion_matrix': cm,
+            'n':               n,
+        }
+
+    def reset(self) -> None:
+        """Clear all accumulators."""
+        self._preds = []
+        self._trues = []
+
+    def macro_f1(self) -> float:
+        """Convenience method: return macro F1 directly (used by QATrainer for early stopping)."""
+        return self.compute()['macro_f1']

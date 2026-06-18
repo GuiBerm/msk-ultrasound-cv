@@ -123,3 +123,71 @@ def build_val_transforms(image_size: int) -> A.Compose:
         A.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
         ToTensorV2(),
     ])
+
+
+# ─── QA Gatekeeper Transforms ─────────────────────────────────────────────────
+
+def build_qa_train_transforms(image_size: int, use_clahe: bool = True) -> A.Compose:
+    """
+    Training augmentations for the QA Gatekeeper model.
+
+    All images (B-Mode and Doppler) are converted to grayscale first via the
+    luminance-weighted average (0.299R + 0.587G + 0.114B), stripping the
+    Doppler colour overlay so the backbone sees only structural geometry.
+    The output retains 3 identical channels so the pretrained backbone can
+    ingest it unchanged.
+
+    After grayscale conversion, CLAHE is optionally applied to normalise
+    contrast differences caused by differing scanner gain settings across
+    hospitals — the same protocol used for the B-Mode scoring model.
+
+    No HueSaturationValue or random-grayscale transforms are included
+    because the images are already achromatic at this point.
+    """
+    clahe_block = (
+        [A.CLAHE(clip_limit=(1.0, 3.0), tile_grid_size=(8, 8), p=0.5)]
+        if use_clahe else []
+    )
+
+    return A.Compose([
+        # ── Grayscale normalisation (strips Doppler colour cues) ──────────────
+        A.ToGray(num_output_channels=3, method='weighted_average', p=1.0),
+        # ── Geometry ─────────────────────────────────────────────────────────
+        A.Rotate(limit=12, border_mode=0, p=0.5),
+        A.ElasticTransform(alpha=30, sigma=5, p=0.3),
+        A.RandomResizedCrop(
+            size=(image_size, image_size),
+            scale=(0.85, 1.0),
+            ratio=(0.9, 1.1),
+            p=0.4,
+        ),
+        # ── Contrast ─────────────────────────────────────────────────────────
+        *clahe_block,
+        # ── Noise / occlusion ────────────────────────────────────────────────
+        A.GaussNoise(std_range=(0.009, 0.018), p=0.4),
+        A.CoarseDropout(
+            num_holes_range=(1, 4),
+            hole_height_range=(image_size // 10, image_size // 10),
+            hole_width_range=(image_size // 10, image_size // 10),
+            fill=0,
+            p=0.3,
+        ),
+        # ── Normalisation ────────────────────────────────────────────────────
+        A.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
+        ToTensorV2(),
+    ])
+
+
+def build_qa_val_transforms(image_size: int) -> A.Compose:
+    """
+    Validation / inference transforms for the QA model.
+
+    Grayscale conversion + ImageNet normalisation only — no augmentation.
+    Mirrors build_val_transforms but prepends the grayscale step so that
+    validation images are pre-processed identically to training images.
+    """
+    return A.Compose([
+        A.ToGray(num_output_channels=3, method='weighted_average', p=1.0),
+        A.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
+        ToTensorV2(),
+    ])
