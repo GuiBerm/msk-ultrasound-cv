@@ -222,6 +222,12 @@ class QATrainer:
             fold_history['accuracy'].append(accuracy)
             fold_history['kappa'].append(kappa)
 
+            for name, acc in val_metrics['per_class_acc'].items():
+                key = f'acc_{name}'
+                if key not in fold_history:
+                    fold_history[key] = []
+                fold_history[key].append(acc)
+
             if macro_f1 > self.best_macro_f1:
                 self.best_macro_f1     = macro_f1
                 self.best_val_loss     = val_loss

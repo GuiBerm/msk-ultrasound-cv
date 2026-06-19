@@ -79,7 +79,7 @@ class ModelConfig:
 
     # ── Paths ───────────────────────────────────────────────────────────────────────
     labels_csv:          str = 'artifacts/labels_with_splits.csv'
-    image_dir:           str = 'data/cropped_images'
+    image_dir:           str = 'pos1'
     checkpoint_dir:      str = 'artifacts/models'
     results_dir:         str = 'results'
     backbone_local_path: Optional[str] = None   # set via --local for offline use
@@ -214,7 +214,7 @@ class QAConfig:
 
     # ── Paths ─────────────────────────────────────────────────────────────────
     labels_csv:          str = 'artifacts/labels_with_splits.csv'
-    image_dir:           str = 'data/cropped_images'
+    image_dir:           str = 'pos1'
     checkpoint_dir:      str = 'artifacts/models/qa'
     results_dir:         str = 'results/qa'
     backbone_local_path: Optional[str] = None
