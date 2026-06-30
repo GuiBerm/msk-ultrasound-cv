@@ -112,6 +112,7 @@ class ModelConfig:
     pin_memory:       bool  = True
     use_amp:          bool  = True
     grad_clip_norm:   float = 1.0
+    accum_steps:      int   = 1       # gradient-accumulation steps (1 = disabled)
 
     # ── Scheduler ─────────────────────────────────────────────────────────────
     lr_t0:     int = 20
@@ -246,6 +247,7 @@ class QAConfig:
     pin_memory:       bool  = True
     use_amp:          bool  = True
     grad_clip_norm:   float = 1.0
+    accum_steps:      int   = 1       # gradient-accumulation steps (1 = disabled)
 
     # ── Scheduler ─────────────────────────────────────────────────────────────
     lr_t0:     int = 20

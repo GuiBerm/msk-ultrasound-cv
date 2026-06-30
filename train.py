@@ -63,6 +63,14 @@ def main():
         ),
     )
     parser.add_argument('--seed', type=int, default=42)
+    parser.add_argument(
+        '--accum-steps', type=int, default=1, metavar='N',
+        help=(
+            'Gradient accumulation steps. N micro-batches are accumulated '
+            'before each optimiser update, simulating a batch size of '
+            'batch_size × N. 1 = disabled (default).'
+        ),
+    )
     parser.add_argument('--folds', type=str, default='0,1,2,3,4', help='Comma-separated fold indices')
     parser.add_argument(
         '--local', type=str, default=None, metavar='PATH',
@@ -99,6 +107,7 @@ def main():
         'freeze_backbone_epochs': args.freeze_epochs,
         'color_augmentation': args.color_augmentation,
         'seed': args.seed,
+        'accum_steps': args.accum_steps,
         'checkpoint_dir': f'artifacts/models/{args.model}/{args.name}',
         'results_dir': f'results/{args.model}/{args.name}',
         'backbone_local_path': args.local,

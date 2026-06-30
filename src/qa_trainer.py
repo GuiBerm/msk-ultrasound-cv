@@ -82,30 +82,44 @@ class QATrainer:
         epoch_loss = 0.0
         n_batches  = 0
 
+        accum_steps = max(1, self.config.accum_steps)
+        use_amp = self.config.use_amp and self.device.type == 'cuda'
+
         pbar = tqdm(loader, desc=f"Epoch {epoch:03d} [TRAIN]", leave=False)
-        for batch in pbar:
-            images      = batch['image'].to(self.device, non_blocking=True)
-            joint_ids   = batch['joint_id'].to(self.device, non_blocking=True)
+        for step_idx, batch in enumerate(pbar):
+            # Zero gradients at the start of each accumulation window
+            if step_idx % accum_steps == 0:
+                self.optimizer.zero_grad(set_to_none=True)
+
+            images       = batch['image'].to(self.device, non_blocking=True)
+            joint_ids    = batch['joint_id'].to(self.device, non_blocking=True)
             modality_ids = batch['modality_id'].to(self.device, non_blocking=True)
 
-            self.optimizer.zero_grad(set_to_none=True)
-
-            use_amp = self.config.use_amp and self.device.type == 'cuda'
             with torch.amp.autocast(device_type=self.device.type, enabled=use_amp):
                 logits = self.model(images, modality_ids)
                 loss   = self.loss_fn(logits, joint_ids)
 
-            if use_amp:
-                self.scaler.scale(loss).backward()
-                self.scaler.unscale_(self.optimizer)
-                nn.utils.clip_grad_norm_(self.model.parameters(), self.config.grad_clip_norm)
-                self.scaler.step(self.optimizer)
-                self.scaler.update()
-            else:
-                loss.backward()
-                nn.utils.clip_grad_norm_(self.model.parameters(), self.config.grad_clip_norm)
-                self.optimizer.step()
+            # Scale loss for accumulation so gradients average (not sum) over the window
+            accum_loss = loss / accum_steps
 
+            if use_amp:
+                self.scaler.scale(accum_loss).backward()
+            else:
+                accum_loss.backward()
+
+            # Optimizer step only at the end of an accumulation window (or last batch)
+            is_last_batch = (step_idx + 1 == len(loader))
+            if (step_idx + 1) % accum_steps == 0 or is_last_batch:
+                if use_amp:
+                    self.scaler.unscale_(self.optimizer)
+                    nn.utils.clip_grad_norm_(self.model.parameters(), self.config.grad_clip_norm)
+                    self.scaler.step(self.optimizer)
+                    self.scaler.update()
+                else:
+                    nn.utils.clip_grad_norm_(self.model.parameters(), self.config.grad_clip_norm)
+                    self.optimizer.step()
+
+            # Accumulate the unscaled loss for logging (keeps values comparable across runs)
             epoch_loss += loss.item()
             n_batches  += 1
             pbar.set_postfix(loss=f"{loss.item():.4f}")
