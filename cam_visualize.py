@@ -237,14 +237,35 @@ def run_cam(
         axes = axes[np.newaxis, :]
 
     for row_idx, (_, record) in enumerate(df_sample.iterrows()):
-        img_path = Path(image_dir) / record['eco_id']
-        if not img_path.exists():
-            # Try without subdir
-            candidates = list(Path(image_dir).rglob(record['eco_id']))
-            if not candidates:
-                log.warning(f"Image not found: {record['eco_id']} — skipping.")
-                continue
-            img_path = candidates[0]
+        # ── Robust image finding ───────────────────────────────────────────────
+        def _find_image(eco_id: str, img_dir: Path) -> Path:
+            # 1. Try dataset.py exact approach
+            for ext in ['.png', '.bmp', '.jpg', '']:
+                p = img_dir / f"{eco_id}{ext}"
+                if p.exists() and p.is_file(): return p
+            
+            # 2. Try the 09. <-> 09_ replacement the user mentioned
+            alt_id1 = eco_id.replace('09.', '09_')
+            alt_id2 = eco_id.replace('09_', '09.')
+            for alt_id in [alt_id1, alt_id2]:
+                for ext in ['.png', '.bmp', '.jpg', '']:
+                    p = img_dir / f"{alt_id}{ext}"
+                    if p.exists() and p.is_file(): return p
+            
+            # 3. Try fallback rglob
+            for search_id in [eco_id, alt_id1, alt_id2]:
+                candidates = list(img_dir.rglob(f"{search_id}.*"))
+                if candidates: return candidates[0]
+                candidates = list(img_dir.rglob(f"*{search_id}*"))
+                if candidates: return candidates[0]
+            
+            return None
+
+        img_path = _find_image(str(record['eco_id']), Path(image_dir))
+        
+        if img_path is None:
+            log.warning(f"Image not found: {record['eco_id']} — skipping.")
+            continue
 
         rgb   = _load_rgb(str(img_path), config.image_size)
         inp   = _to_tensor(rgb, transforms).to(device)
